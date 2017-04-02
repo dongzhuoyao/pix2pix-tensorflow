@@ -6,6 +6,7 @@ terraform.tfstate
 terraform.tfstate.backup
 terraform.tfvars
 facades_train/
+facades_test/
 *.log
 .idea/
 
