@@ -314,6 +314,7 @@ def load_examples1():
         #maybe buggy
         offset_h = tf.random_uniform([1], 0, h - CROP_SIZE + 1, seed=seed,dtype=tf.int32)
         offset_w = tf.random_uniform([1], 0, w - CROP_SIZE + 1, seed=seed,dtype=tf.int32)
+        print(r)
         print("shit")
         print(offset_h)
         print(offset_w)
