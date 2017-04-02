@@ -314,10 +314,10 @@ def load_examples1():
         #maybe buggy
         offset_h = tf.cast(tf.floor(tf.random_uniform([1], 0, int(a.d_img_height) - CROP_SIZE + 1, seed=seed)), dtype=tf.int32)
         offset_w = tf.cast(tf.floor(tf.random_uniform([1], 0, int(a.d_img_width) - CROP_SIZE + 1, seed=seed)), dtype=tf.int32)
-        #print(r)
-        #print("shit")
-        #print(offset_h)
-        #print(offset_w)
+        print(r)
+        print("shit")
+        print(offset_h)
+        print(offset_w)
         r = tf.image.crop_to_bounding_box(r, offset_h, offset_w, CROP_SIZE, CROP_SIZE)
 
         # area produces a nice downscaling, but does nearest neighbor for upscaling
