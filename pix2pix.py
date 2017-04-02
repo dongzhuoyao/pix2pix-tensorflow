@@ -313,8 +313,8 @@ def load_examples1():
 
         #r = tf.image.resize_images(r, [int(a.scale_rate*tf.shape(r)[0]), int(a.scale_rate*tf.shape(r)[1])], method=tf.image.ResizeMethod.AREA)
 
-        offset_h = tf.cast(tf.floor(tf.random_uniform([1], 0, tf.shape(r)[0] - CROP_SIZE + 1, seed=seed)), dtype=tf.int32)
-        offset_w = tf.cast(tf.floor(tf.random_uniform([1], 0, tf.shape(r)[1] - CROP_SIZE + 1, seed=seed)), dtype=tf.int32)
+        offset_h = tf.cast(tf.floor(tf.random_uniform([1], 0, a.d_img_height - CROP_SIZE + 1, seed=seed)), dtype=tf.int32)
+        offset_w = tf.cast(tf.floor(tf.random_uniform([1], 0, a.d_img_width - CROP_SIZE + 1, seed=seed)), dtype=tf.int32)
         r = tf.image.crop_to_bounding_box(r, offset_h, offset_w, CROP_SIZE, CROP_SIZE)
 
         return r
