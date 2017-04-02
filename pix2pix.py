@@ -270,11 +270,14 @@ def load_examples1():
 
     with tf.name_scope("load_images"):
 
+        path_queue = tf.train.slice_input_producer([train_img_paths,train_img_paths, train_gt_img_paths], shuffle=True)
+
+        paths = path_queue[0]
+        img_contents = tf.read_file(path_queue[1])
+        label_contents = tf.read_file(path_queue[2])
+
         # load src image
-        path_queue = tf.train.string_input_producer(train_img_paths, shuffle=True)
-        reader = tf.WholeFileReader()
-        paths, contents = reader.read(path_queue)
-        raw_input = decode(contents)
+        raw_input = decode(img_contents)
         raw_input = tf.image.convert_image_dtype(raw_input, dtype=tf.float32)
         assertion = tf.assert_equal(tf.shape(raw_input)[2], 3, message="image does not have 3 channels")
         # d:???
@@ -287,10 +290,7 @@ def load_examples1():
 
 
         #load ground truth image,here may buggy..
-        gt_path_queue = tf.train.string_input_producer(train_gt_img_paths, shuffle=True)
-        gt_reader = tf.WholeFileReader()
-        gt_paths, gt_contents = gt_reader.read(gt_path_queue)
-        gt_raw_input = decode(gt_contents)
+        gt_raw_input = decode(label_contents)
         gt_raw_input = tf.image.convert_image_dtype(gt_raw_input, dtype=tf.float32)
         gt_assertion = tf.assert_equal(tf.shape(gt_raw_input)[2], 3, message="image does not have 3 channels")
         # d:???
@@ -337,6 +337,8 @@ def load_examples1():
         count=len(train_img_paths),
         steps_per_epoch=steps_per_epoch,
     )
+
+
 
 
 def load_examples():
