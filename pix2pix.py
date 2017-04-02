@@ -330,6 +330,7 @@ def load_examples1():
     paths_batch, inputs_batch, targets_batch = tf.train.batch([paths, input_images, target_images], batch_size=a.batch_size)
     steps_per_epoch = int(math.ceil(len(train_img_paths) / a.batch_size))
 
+
     return Examples(
         paths=paths_batch,
         inputs=inputs_batch,
