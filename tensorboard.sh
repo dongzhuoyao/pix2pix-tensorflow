@@ -1,1 +1,1 @@
-tensorboard --logdir=facades_train --port 7778
+tensorboard --logdir=cs_blur  --port 7778
