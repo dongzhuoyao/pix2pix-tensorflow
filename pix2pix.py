@@ -41,7 +41,9 @@ parser.add_argument("--batch_size", type=int, default=1, help="number of images 
 parser.add_argument("--which_direction", type=str, default="AtoB", choices=["AtoB", "BtoA"])
 parser.add_argument("--ngf", type=int, default=64, help="number of generator filters in first conv layer")
 parser.add_argument("--ndf", type=int, default=64, help="number of discriminator filters in first conv layer")
-parser.add_argument("--scale_size", type=int, default=286, help="scale images to this size before cropping to 256x256")
+#parser.add_argument("--scale_size", type=int, default=286, help="scale images to this size before cropping to 256x256")
+
+parser.add_argument("--scale_rate", type=int, default=0.9, help="scale images to this size before cropping to 256x256")
 parser.add_argument("--flip", dest="flip", action="store_true", help="flip images horizontally")
 parser.add_argument("--no_flip", dest="flip", action="store_false", help="don't flip images horizontally")
 parser.set_defaults(flip=True)
@@ -309,8 +311,11 @@ def load_examples1():
         #if a.flip:
         #    r = tf.image.random_flip_left_right(r, seed=seed)
 
-        offset = tf.cast(tf.floor(tf.random_uniform([2], 0, 1024 - CROP_SIZE + 1, seed=seed)), dtype=tf.int32)
-        r = tf.image.crop_to_bounding_box(r, offset[0], offset[1], CROP_SIZE, CROP_SIZE)
+        r = tf.image.resize_images(r, [a.scale_rate*tf.shape(r)[0], a.scale_rate*tf.shape(r)[1]], method=tf.image.ResizeMethod.AREA)
+
+        offset_h = tf.cast(tf.floor(tf.random_uniform([1], 0, tf.shape(r)[0] - CROP_SIZE + 1, seed=seed)), dtype=tf.int32)
+        offset_w = tf.cast(tf.floor(tf.random_uniform([1], 0, tf.shape(r)[1] - CROP_SIZE + 1, seed=seed)), dtype=tf.int32)
+        r = tf.image.crop_to_bounding_box(r, offset_h, offset_w, CROP_SIZE, CROP_SIZE)
 
         return r
 
