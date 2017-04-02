@@ -277,7 +277,7 @@ def load_examples1():
         with tf.control_dependencies([assertion]):
             raw_input = tf.identity(raw_input)
 
-        raw_input.set_shape([None, None, 3])
+        #raw_input.set_shape([None, None, 3])
         # break apart image pair and move to range [-1, 1]
         inputs = preprocess(raw_input)
 
@@ -293,7 +293,7 @@ def load_examples1():
         with tf.control_dependencies([assertion]):
             raw_input = tf.identity(raw_input)
 
-        raw_input.set_shape([None, None, 3])
+        #raw_input.set_shape([None, None, 3])
         # break apart image pair and move to range [-1, 1]
         targets = preprocess(raw_input)
 
