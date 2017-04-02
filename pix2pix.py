@@ -316,6 +316,8 @@ def load_examples1():
         offset_w = tf.cast(tf.floor(tf.random_uniform([1], 0, int(a.d_img_width) - CROP_SIZE + 1, seed=seed)), dtype=tf.int32)
         print(r)
         print("shit")
+        offset = tf.cast(tf.floor(tf.random_uniform([2], 0, a.scale_size - CROP_SIZE + 1, seed=seed)), dtype=tf.int32)
+        print(offset)
         print(offset_h)
         print(offset_w)
         r = tf.image.crop_to_bounding_box(r, offset_h, offset_w, CROP_SIZE, CROP_SIZE)
