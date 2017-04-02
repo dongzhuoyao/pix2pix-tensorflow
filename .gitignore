@@ -5,3 +5,5 @@ models
 terraform.tfstate
 terraform.tfstate.backup
 terraform.tfvars
+facades_train/
+*.log
