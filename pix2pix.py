@@ -304,8 +304,10 @@ def load_examples1():
     seed = random.randint(0, 2**31 - 1)
     def transform(image):
         r = image
-        h = tf.shape(r)[0]
-        w = tf.shape(r)[1]
+        #h = tf.shape(r)[0]
+        #w = tf.shape(r)[1]
+        h = 1024
+        w = 2048
         if a.flip:
             r = tf.image.random_flip_left_right(r, seed=seed)
 
