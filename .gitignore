@@ -8,3 +8,6 @@ terraform.tfvars
 facades_train/
 *.log
 .idea/
+
+cs_blur/
+cityscapes/

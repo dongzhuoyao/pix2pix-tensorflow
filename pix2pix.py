@@ -14,6 +14,12 @@ import math
 import time
 
 parser = argparse.ArgumentParser()
+
+parser.add_argument("--d_train_list", help="path to folder containing images")
+parser.add_argument("--d_train_dir", help="path to folder containing images")
+parser.add_argument("--d_train_gt_dir", help="path to folder containing images")
+
+#original
 parser.add_argument("--input_dir", help="path to folder containing images")
 parser.add_argument("--mode", required=True, choices=["train", "test", "export"])
 parser.add_argument("--output_dir", required=True, help="where to put output files")
@@ -235,6 +241,100 @@ def lab_to_rgb(lab):
         return tf.reshape(srgb_pixels, tf.shape(lab))
 
 
+def load_examples1():
+    if a.d_train_list is None or not os.path.isfile(a.d_train_list):
+        raise Exception("d_input_file does not exist")
+    f = open(a.d_train_list,"r")
+    lines = f.read().splitlines()
+    t,g = lines[0].split()
+    if "png" in t:
+        decode = tf.image.decode_png
+    else:
+        decode = tf.image.decode_jpeg
+
+    train_img_paths =[]
+    train_gt_img_paths = []
+    for line in lines:
+        name = os.path.basename(line.split()[0])
+        train_img_paths.append(os.path.join(a.d_train_dir,name))
+        train_gt_img_paths.append(os.path.join(a.d_train_gt_dir,name))
+
+
+    def get_name(path):
+        name, _ = os.path.splitext(os.path.basename(path))
+        return name
+
+
+    with tf.name_scope("load_images"):
+        #load src image
+        path_queue = tf.train.string_input_producer(train_img_paths, shuffle=True)
+        reader = tf.WholeFileReader()
+        paths, contents = reader.read(path_queue)
+        raw_input = decode(contents)
+        raw_input = tf.image.convert_image_dtype(raw_input, dtype=tf.float32)
+        assertion = tf.assert_equal(tf.shape(raw_input)[2], 3, message="image does not have 3 channels")
+        #d:???
+        with tf.control_dependencies([assertion]):
+            raw_input = tf.identity(raw_input)
+
+        raw_input.set_shape([None, None, 3])
+        # break apart image pair and move to range [-1, 1]
+        inputs = preprocess(raw_input)
+
+
+        #load ground truth image,here may buggy..
+        path_queue = tf.train.string_input_producer(train_img_paths, shuffle=True)
+        reader = tf.WholeFileReader()
+        paths, contents = reader.read(path_queue)
+        raw_input = decode(contents)
+        raw_input = tf.image.convert_image_dtype(raw_input, dtype=tf.float32)
+        assertion = tf.assert_equal(tf.shape(raw_input)[2], 3, message="image does not have 3 channels")
+        # d:???
+        with tf.control_dependencies([assertion]):
+            raw_input = tf.identity(raw_input)
+
+        raw_input.set_shape([None, None, 3])
+        # break apart image pair and move to range [-1, 1]
+        targets = preprocess(raw_input)
+
+
+
+    # synchronize seed for image operations so that we do the same operations to both
+    # input and output images
+    seed = random.randint(0, 2**31 - 1)
+    def transform(image):
+        r = image
+        h = tf.shape(r)[0]
+        w = tf.shape(r)[1]
+        if a.flip:
+            r = tf.image.random_flip_left_right(r, seed=seed)
+
+        #maybe buggy
+        offset_h = tf.cast(tf.floor(tf.random_uniform([1], 0, h - CROP_SIZE + 1, seed=seed)), dtype=tf.int32)
+        offset_w = tf.cast(tf.floor(tf.random_uniform([1], 0, w - CROP_SIZE + 1, seed=seed)), dtype=tf.int32)
+
+        r = tf.image.crop_to_bounding_box(r, offset_h, offset_w, CROP_SIZE, CROP_SIZE)
+
+        return r
+
+    with tf.name_scope("input_images"):
+        input_images = transform(inputs)
+
+    with tf.name_scope("target_images"):
+        target_images = transform(targets)
+
+    paths_batch, inputs_batch, targets_batch = tf.train.batch([paths, input_images, target_images], batch_size=a.batch_size)
+    steps_per_epoch = int(math.ceil(len(train_img_paths) / a.batch_size))
+
+    return Examples(
+        paths=paths_batch,
+        inputs=inputs_batch,
+        targets=targets_batch,
+        count=len(train_img_paths),
+        steps_per_epoch=steps_per_epoch,
+    )
+
+
 def load_examples():
     if a.input_dir is None or not os.path.exists(a.input_dir):
         raise Exception("input_dir does not exist")
@@ -267,6 +367,7 @@ def load_examples():
         raw_input = tf.image.convert_image_dtype(raw_input, dtype=tf.float32)
 
         assertion = tf.assert_equal(tf.shape(raw_input)[2], 3, message="image does not have 3 channels")
+        #d:???
         with tf.control_dependencies([assertion]):
             raw_input = tf.identity(raw_input)
 
@@ -466,6 +567,7 @@ def create_model(inputs, targets):
         discrim_train = discrim_optim.apply_gradients(discrim_grads_and_vars)
 
     with tf.name_scope("generator_train"):
+        #d: after "discrim_train",it will execute "gen_train"
         with tf.control_dependencies([discrim_train]):
             gen_tvars = [var for var in tf.trainable_variables() if var.name.startswith("generator")]
             gen_optim = tf.train.AdamOptimizer(a.lr, a.beta1)
@@ -626,7 +728,9 @@ def main():
 
         return
 
-    examples = load_examples()
+
+    examples = load_examples1()
+
     print("examples count = %d" % examples.count)
 
     # inputs and targets are [batch_size, height, width, channels]
@@ -769,6 +873,7 @@ def main():
                 if should(a.display_freq):
                     fetches["display"] = display_fetches
 
+                #main sentence~
                 results = sess.run(fetches, options=options, run_metadata=run_metadata)
 
                 if should(a.summary_freq):
