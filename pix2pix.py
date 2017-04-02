@@ -312,8 +312,8 @@ def load_examples1():
             r = tf.image.random_flip_left_right(r, seed=seed)
 
         #maybe buggy
-        offset_h = tf.random_uniform([1], 0, h - CROP_SIZE + 1, seed=seed,dtype=tf.int32)
-        offset_w = tf.random_uniform([1], 0, w - CROP_SIZE + 1, seed=seed,dtype=tf.int32)
+        offset_h = tf.cast(tf.floor(tf.random_uniform([1], 0, h - CROP_SIZE + 1, seed=seed)), dtype=tf.int32)
+        offset_w = tf.cast(tf.floor(tf.random_uniform([1], 0, w - CROP_SIZE + 1, seed=seed)), dtype=tf.int32)
         print(r)
         print("shit")
         print(offset_h)
