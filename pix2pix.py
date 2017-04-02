@@ -311,7 +311,7 @@ def load_examples1():
         #if a.flip:
         #    r = tf.image.random_flip_left_right(r, seed=seed)
 
-        r = tf.image.resize_images(r, [a.scale_rate*tf.shape(r)[0], a.scale_rate*tf.shape(r)[1]], method=tf.image.ResizeMethod.AREA)
+        r = tf.image.resize_images(r, [int(a.scale_rate*tf.shape(r)[0]), int(a.scale_rate*tf.shape(r)[1])], method=tf.image.ResizeMethod.AREA)
 
         offset_h = tf.cast(tf.floor(tf.random_uniform([1], 0, tf.shape(r)[0] - CROP_SIZE + 1, seed=seed)), dtype=tf.int32)
         offset_w = tf.cast(tf.floor(tf.random_uniform([1], 0, tf.shape(r)[1] - CROP_SIZE + 1, seed=seed)), dtype=tf.int32)
