@@ -312,13 +312,22 @@ def load_examples1():
             r = tf.image.random_flip_left_right(r, seed=seed)
 
         #maybe buggy
-        offset_h = tf.cast(tf.floor(tf.random_uniform([1], 0, h - CROP_SIZE + 1, seed=seed)), dtype=tf.int32)
-        offset_w = tf.cast(tf.floor(tf.random_uniform([1], 0, w - CROP_SIZE + 1, seed=seed)), dtype=tf.int32)
-        print(r)
-        print("shit")
-        print(offset_h)
-        print(offset_w)
-        r = tf.image.crop_to_bounding_box(r, offset_h, offset_w, CROP_SIZE, CROP_SIZE)
+        #offset_h = tf.cast(tf.floor(tf.random_uniform([1], 0, h - CROP_SIZE + 1, seed=seed)), dtype=tf.int32)
+        #offset_w = tf.cast(tf.floor(tf.random_uniform([1], 0, w - CROP_SIZE + 1, seed=seed)), dtype=tf.int32)
+        #print(r)
+        #print("shit")
+        #print(offset_h)
+        #print(offset_w)
+        #r = tf.image.crop_to_bounding_box(r, offset_h, offset_w, CROP_SIZE, CROP_SIZE)
+        # area produces a nice downscaling, but does nearest neighbor for upscaling
+        # assume we're going to be doing downscaling here
+        r = tf.image.resize_images(r, [a.scale_size, a.scale_size], method=tf.image.ResizeMethod.AREA)
+
+        offset = tf.cast(tf.floor(tf.random_uniform([2], 0, a.scale_size - CROP_SIZE + 1, seed=seed)), dtype=tf.int32)
+        if a.scale_size > CROP_SIZE:
+            r = tf.image.crop_to_bounding_box(r, offset[0], offset[1], CROP_SIZE, CROP_SIZE)
+        elif a.scale_size < CROP_SIZE:
+            raise Exception("scale size cannot be less than crop size")
 
         return r
 
