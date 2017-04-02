@@ -55,7 +55,7 @@ parser.add_argument("--output_filetype", default="png", choices=["png", "jpeg"])
 a = parser.parse_args()
 
 EPS = 1e-12
-CROP_SIZE = 256
+CROP_SIZE = 400
 
 Examples = collections.namedtuple("Examples", "paths, inputs, targets, count, steps_per_epoch")
 Model = collections.namedtuple("Model", "outputs, predict_real, predict_fake, discrim_loss, discrim_grads_and_vars, gen_loss_GAN, gen_loss_L1, gen_grads_and_vars, train")
@@ -306,25 +306,8 @@ def load_examples1():
     seed = random.randint(0, 2**31 - 1)
     def transform(image):
         r = image
-        #h = tf.shape(r)[0]
-        #w = tf.shape(r)[1]
-        if a.flip:
-            r = tf.image.random_flip_left_right(r, seed=seed)
-
-        #maybe buggy
-        #offset_h = tf.cast(tf.floor(tf.random_uniform([1], 0, int(a.d_img_height) - CROP_SIZE + 1, seed=seed)), dtype=tf.int32)
-        #offset_w = tf.cast(tf.floor(tf.random_uniform([1], 0, int(a.d_img_width) - CROP_SIZE + 1, seed=seed)), dtype=tf.int32)
-        #print(r)
-        #print("shit")
-        #offset = tf.cast(tf.floor(tf.random_uniform([2], 0, a.scale_size - CROP_SIZE + 1, seed=seed)), dtype=tf.int32)
-        #print(offset)
-        #print(offset_h)
-        #print(offset_w)
-        #r = tf.image.crop_to_bounding_box(r, offset_h, offset_w, CROP_SIZE, CROP_SIZE)
-
-        # area produces a nice downscaling, but does nearest neighbor for upscaling
-        # assume we're going to be doing downscaling here
-        #r = tf.image.resize_images(r, [a.scale_size, a.scale_size], method=tf.image.ResizeMethod.AREA)
+        #if a.flip:
+        #    r = tf.image.random_flip_left_right(r, seed=seed)
 
         offset = tf.cast(tf.floor(tf.random_uniform([2], 0, 1024 - CROP_SIZE + 1, seed=seed)), dtype=tf.int32)
         r = tf.image.crop_to_bounding_box(r, offset[0], offset[1], CROP_SIZE, CROP_SIZE)
