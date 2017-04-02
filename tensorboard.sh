@@ -1,1 +1,1 @@
-tensorboard --logdir=facades_train
+tensorboard --logdir=facades_train --port 7778
