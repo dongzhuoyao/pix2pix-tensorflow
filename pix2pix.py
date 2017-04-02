@@ -18,7 +18,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--d_train_list", help="path to folder containing images")
 parser.add_argument("--d_train_dir", help="path to folder containing images")
 parser.add_argument("--d_train_gt_dir", help="path to folder containing images")
-
+parser.add_argument("--d_img_height", help="path to folder containing images")
+parser.add_argument("--d_img_width", help="path to folder containing images")
 #original
 parser.add_argument("--input_dir", help="path to folder containing images")
 parser.add_argument("--mode", required=True, choices=["train", "test", "export"])
@@ -266,23 +267,8 @@ def load_examples1():
 
 
     with tf.name_scope("load_images"):
-        #load src image
-        path_queue = tf.train.string_input_producer(train_img_paths, shuffle=True)
-        reader = tf.WholeFileReader()
-        paths, contents = reader.read(path_queue)
-        raw_input = decode(contents)
-        raw_input = tf.image.convert_image_dtype(raw_input, dtype=tf.float32)
-        assertion = tf.assert_equal(tf.shape(raw_input)[2], 3, message="image does not have 3 channels")
-        #d:???
-        with tf.control_dependencies([assertion]):
-            raw_input = tf.identity(raw_input)
 
-        #raw_input.set_shape([None, None, 3])
-        # break apart image pair and move to range [-1, 1]
-        inputs = preprocess(raw_input)
-
-
-        #load ground truth image,here may buggy..
+        # load src image
         path_queue = tf.train.string_input_producer(train_img_paths, shuffle=True)
         reader = tf.WholeFileReader()
         paths, contents = reader.read(path_queue)
@@ -293,9 +279,25 @@ def load_examples1():
         with tf.control_dependencies([assertion]):
             raw_input = tf.identity(raw_input)
 
-        #raw_input.set_shape([None, None, 3])
+        raw_input.set_shape([a.d_img_height, a.d_img_width, 3])
         # break apart image pair and move to range [-1, 1]
-        targets = preprocess(raw_input)
+        inputs = preprocess(raw_input)
+
+
+        #load ground truth image,here may buggy..
+        gt_path_queue = tf.train.string_input_producer(train_gt_img_paths, shuffle=True)
+        gt_reader = tf.WholeFileReader()
+        gt_paths, gt_contents = gt_reader.read(gt_path_queue)
+        gt_raw_input = decode(gt_contents)
+        gt_raw_input = tf.image.convert_image_dtype(gt_raw_input, dtype=tf.float32)
+        gt_assertion = tf.assert_equal(tf.shape(gt_raw_input)[2], 3, message="image does not have 3 channels")
+        # d:???
+        with tf.control_dependencies([gt_assertion]):
+            gt_raw_input = tf.identity(gt_raw_input)
+
+        gt_raw_input.set_shape([a.d_img_height, a.d_img_width, 3])
+        # break apart image pair and move to range [-1, 1]
+        targets = preprocess(gt_raw_input)
 
 
 
@@ -306,28 +308,27 @@ def load_examples1():
         r = image
         #h = tf.shape(r)[0]
         #w = tf.shape(r)[1]
-        h = 1024
-        w = 2048
         if a.flip:
             r = tf.image.random_flip_left_right(r, seed=seed)
 
         #maybe buggy
-        #offset_h = tf.cast(tf.floor(tf.random_uniform([1], 0, h - CROP_SIZE + 1, seed=seed)), dtype=tf.int32)
-        #offset_w = tf.cast(tf.floor(tf.random_uniform([1], 0, w - CROP_SIZE + 1, seed=seed)), dtype=tf.int32)
+        offset_h = tf.cast(tf.floor(tf.random_uniform([1], 0, a.d_img_height- CROP_SIZE + 1, seed=seed)), dtype=tf.int32)
+        offset_w = tf.cast(tf.floor(tf.random_uniform([1], 0, a.d_img_width - CROP_SIZE + 1, seed=seed)), dtype=tf.int32)
         #print(r)
         #print("shit")
         #print(offset_h)
         #print(offset_w)
-        #r = tf.image.crop_to_bounding_box(r, offset_h, offset_w, CROP_SIZE, CROP_SIZE)
+        r = tf.image.crop_to_bounding_box(r, offset_h, offset_w, CROP_SIZE, CROP_SIZE)
+
         # area produces a nice downscaling, but does nearest neighbor for upscaling
         # assume we're going to be doing downscaling here
-        r = tf.image.resize_images(r, [a.scale_size, a.scale_size], method=tf.image.ResizeMethod.AREA)
+        #r = tf.image.resize_images(r, [a.scale_size, a.scale_size], method=tf.image.ResizeMethod.AREA)
 
-        offset = tf.cast(tf.floor(tf.random_uniform([2], 0, a.scale_size - CROP_SIZE + 1, seed=seed)), dtype=tf.int32)
-        if a.scale_size > CROP_SIZE:
-            r = tf.image.crop_to_bounding_box(r, offset[0], offset[1], CROP_SIZE, CROP_SIZE)
-        elif a.scale_size < CROP_SIZE:
-            raise Exception("scale size cannot be less than crop size")
+        #offset = tf.cast(tf.floor(tf.random_uniform([2], 0, a.scale_size - CROP_SIZE + 1, seed=seed)), dtype=tf.int32)
+        #if a.scale_size > CROP_SIZE:
+        #    r = tf.image.crop_to_bounding_box(r, offset[0], offset[1], CROP_SIZE, CROP_SIZE)
+        #elif a.scale_size < CROP_SIZE:
+        #    raise Exception("scale size cannot be less than crop size")
 
         return r
 
