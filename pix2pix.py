@@ -917,6 +917,10 @@ def main():
                 if should(a.trace_freq):
                     print("recording trace")
                     sv.summary_writer.add_run_metadata(run_metadata, "step_%d" % results["global_step"])
+                    tf.contrib.tfprof.model_analyzer.print_model_analysis(
+                        tf.get_default_graph(),
+                        run_meta=run_metadata,
+                        tfprof_options=tf.contrib.tfprof.model_analyzer.PRINT_ALL_TIMING_MEMORY)
 
                 if should(a.progress_freq):
                     print("write progress")
