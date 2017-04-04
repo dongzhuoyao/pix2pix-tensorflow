@@ -32,6 +32,7 @@ parser.add_argument("--d_train_dir", help="path to folder containing images")
 parser.add_argument("--d_train_gt_dir", help="path to folder containing images")
 parser.add_argument("--d_img_height", type=int,help="path to folder containing images")
 parser.add_argument("--d_img_width", type=int,help="path to folder containing images")
+parser.add_argument("--crop_size", type=int,default=512,help="path to folder containing images")
 #original
 parser.add_argument("--input_dir", help="path to folder containing images")
 parser.add_argument("--mode", required=True, choices=["train", "test", "export"])
@@ -69,7 +70,7 @@ parser.add_argument("--output_filetype", default="png", choices=["png", "jpeg"])
 a = parser.parse_args()
 
 EPS = 1e-12
-CROP_SIZE = 512
+
 
 Examples = collections.namedtuple("Examples", "paths, inputs, targets, count, steps_per_epoch")
 Model = collections.namedtuple("Model", "outputs, predict_real, predict_fake, discrim_loss, discrim_grads_and_vars, gen_loss_GAN, gen_loss_L1, gen_grads_and_vars, train")
@@ -290,6 +291,7 @@ def load_examples1():
 
         # load src image
         raw_input = decode(img_contents)
+        #convert to [0,1]
         raw_input = tf.image.convert_image_dtype(raw_input, dtype=tf.float32)
         assertion = tf.assert_equal(tf.shape(raw_input)[2], 3, message="image does not have 3 channels")
         # d:???
@@ -297,12 +299,13 @@ def load_examples1():
             raw_input = tf.identity(raw_input)
 
         raw_input.set_shape([a.d_img_height, a.d_img_width, 3])
-        # break apart image pair and move to range [-1, 1]
+        # move to range [-1, 1]
         inputs = preprocess(raw_input)
 
 
         #load ground truth image,here may buggy..
         gt_raw_input = decode(label_contents)
+        # convert to [0,1]
         gt_raw_input = tf.image.convert_image_dtype(gt_raw_input, dtype=tf.float32)
         gt_assertion = tf.assert_equal(tf.shape(gt_raw_input)[2], 3, message="image does not have 3 channels")
         # d:???
@@ -310,7 +313,7 @@ def load_examples1():
             gt_raw_input = tf.identity(gt_raw_input)
 
         gt_raw_input.set_shape([a.d_img_height, a.d_img_width, 3])
-        # break apart image pair and move to range [-1, 1]
+        #move to range [-1, 1]
         targets = preprocess(gt_raw_input)
 
 
@@ -325,11 +328,11 @@ def load_examples1():
 
         #r = tf.image.resize_images(r, [int(a.scale_rate*tf.shape(r)[0]), int(a.scale_rate*tf.shape(r)[1])], method=tf.image.ResizeMethod.AREA)
 
-        offset_h = tf.cast(tf.floor(tf.random_uniform([1], 0, a.d_img_height - CROP_SIZE + 1, seed=seed)), dtype=tf.int32)
-        offset_w = tf.cast(tf.floor(tf.random_uniform([1], 0, a.d_img_width - CROP_SIZE + 1, seed=seed)), dtype=tf.int32)
+        offset_h = tf.cast(tf.floor(tf.random_uniform([1], 0, a.d_img_height - a.crop_size + 1, seed=seed)), dtype=tf.int32)
+        offset_w = tf.cast(tf.floor(tf.random_uniform([1], 0, a.d_img_width - a.crop_size + 1, seed=seed)), dtype=tf.int32)
         print(offset_h)
         print(offset_w)
-        r = tf.image.crop_to_bounding_box(r, offset_h[0], offset_w[0], CROP_SIZE, CROP_SIZE)
+        r = tf.image.crop_to_bounding_box(r, offset_h[0], offset_w[0], a.crop_size, a.crop_size)
 
         return r
 
@@ -423,10 +426,10 @@ def load_examples():
         # assume we're going to be doing downscaling here
         r = tf.image.resize_images(r, [a.scale_size, a.scale_size], method=tf.image.ResizeMethod.AREA)
 
-        offset = tf.cast(tf.floor(tf.random_uniform([2], 0, a.scale_size - CROP_SIZE + 1, seed=seed)), dtype=tf.int32)
-        if a.scale_size > CROP_SIZE:
-            r = tf.image.crop_to_bounding_box(r, offset[0], offset[1], CROP_SIZE, CROP_SIZE)
-        elif a.scale_size < CROP_SIZE:
+        offset = tf.cast(tf.floor(tf.random_uniform([2], 0, a.scale_size - a.crop_size + 1, seed=seed)), dtype=tf.int32)
+        if a.scale_size > a.crop_size:
+            r = tf.image.crop_to_bounding_box(r, offset[0], offset[1], a.crop_size, a.crop_size)
+        elif a.scale_size < a.crop_size:
             raise Exception("scale size cannot be less than crop size")
         return r
 
@@ -685,7 +688,7 @@ def main():
                     print("loaded", key, "=", val)
                     setattr(a, key, val)
         # disable these features in test mode
-        a.scale_size = CROP_SIZE
+        a.scale_size = a.crop_size
         a.flip = False
 
     for k, v in a._get_kwargs():
@@ -705,7 +708,7 @@ def main():
         # remove alpha channel if present
         input_image = input_image[:,:,:3]
         input_image = tf.image.convert_image_dtype(input_image, dtype=tf.float32)
-        input_image.set_shape([CROP_SIZE, CROP_SIZE, 3])
+        input_image.set_shape([a.crop_size, a.crop_size, 3])
         batch_input = tf.expand_dims(input_image, axis=0)
 
         with tf.variable_scope("generator") as scope:

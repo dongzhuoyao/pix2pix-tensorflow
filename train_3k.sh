@@ -1,4 +1,4 @@
-CUDA_VISIBLE_DEVICES=1 python pix2pix.py \
+CUDA_VISIBLE_DEVICES=2 python pix2pix.py \
 	  --mode train \
 	    --output_dir cs_blur \
 	      --max_epochs 200 \
@@ -7,4 +7,5 @@ CUDA_VISIBLE_DEVICES=1 python pix2pix.py \
             --d_train_gt_dir /home/hutao1/dresult/normal_cityscapes/train_5 \
             --d_img_height 1024 \
             --d_img_width 2048 \
-            --batch_size 16
+            --batch_size 16 \
+            --crop_size 600
