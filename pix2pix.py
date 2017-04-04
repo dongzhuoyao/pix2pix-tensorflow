@@ -807,14 +807,11 @@ def main():
         }
 
     # summaries
-    with tf.name_scope("inputs_summary"):
-        tf.summary.image("inputs", converted_inputs)
+    with tf.name_scope("contrast_summary"):
+        tf.summary.image('input_target_output',
+                         tf.concat([converted_inputs, converted_targets, converted_outputs], 2),
+                         max_outputs=4)
 
-    with tf.name_scope("targets_summary"):
-        tf.summary.image("targets", converted_targets)
-
-    with tf.name_scope("outputs_summary"):
-        tf.summary.image("outputs", converted_outputs)
 
     with tf.name_scope("predict_real_summary"):
         tf.summary.image("predict_real", tf.image.convert_image_dtype(model.predict_real, dtype=tf.uint8))
