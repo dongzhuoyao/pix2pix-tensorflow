@@ -44,7 +44,7 @@ parser.add_argument("--max_steps", type=int, help="number of training steps (0 t
 parser.add_argument("--max_epochs", type=int, help="number of training epochs")
 parser.add_argument("--summary_freq", type=int, default=100, help="update summaries every summary_freq steps")
 parser.add_argument("--progress_freq", type=int, default=50, help="display progress every progress_freq steps")
-parser.add_argument("--trace_freq", type=int, default=100, help="trace execution every trace_freq steps")
+parser.add_argument("--trace_freq", type=int, default=0, help="trace execution every trace_freq steps")
 parser.add_argument("--display_freq", type=int, default=0, help="write current training images every display_freq steps")
 parser.add_argument("--save_freq", type=int, default=5000, help="save model every save_freq steps, 0 to disable")
 
@@ -158,6 +158,14 @@ def deconv(batch_input, out_channels):
         conv = tf.nn.conv2d_transpose(batch_input, filter, [batch, in_height * 2, in_width * 2, out_channels], [1, 2, 2, 1], padding="SAME")
         return conv
 
+def deconv_1(batch_input, out_channels):
+    with tf.variable_scope("deconv_only_1"):
+        batch, in_height, in_width, in_channels = [int(d) for d in batch_input.get_shape()]
+        filter = tf.get_variable("filter", [1, 1, out_channels, in_channels], dtype=tf.float32, initializer=tf.random_normal_initializer(0, 0.02))
+        # [batch, in_height, in_width, in_channels], [filter_width, filter_height, out_channels, in_channels]
+        #     => [batch, out_height, out_width, out_channels]
+        conv = tf.nn.conv2d_transpose(batch_input, filter, [batch, in_height, in_width, out_channels], [1, 1, 1, 1], padding="SAME")
+        return conv
 
 def check_image(image):
     assertion = tf.assert_equal(tf.shape(image)[-1], 3, message="image must have 3 color channels")
@@ -492,6 +500,16 @@ def create_generator(generator_inputs, generator_outputs_channels):
         (a.ngf * 2, 0.0),       # decoder_2: [batch, 128, 128, ngf * 2 * 2] => [batch, 256, 256, ngf * 2]
     ]
 
+    def add_upscale(last_output):
+        """Adds a layer that upscales the output by 2x through nearest neighbor interpolation"""
+
+        prev_shape = last_output.get_shape()
+        size = [2 * int(s) for s in prev_shape[1:3]]
+        out = tf.image.resize_nearest_neighbor(last_output, size)
+        return out
+
+
+
     num_encoder_layers = len(layers)
     for decoder_layer, (out_channels, dropout) in enumerate(layer_specs):
         skip_layer = num_encoder_layers - decoder_layer - 1
@@ -503,9 +521,12 @@ def create_generator(generator_inputs, generator_outputs_channels):
             else:
                 input = tf.concat([layers[-1], layers[skip_layer]], axis=3)
 
+            # Spatial upscale (see http://distill.pub/2016/deconv-checkerboard/)
+            # and transposed convolution
+            input = add_upscale(input)
             rectified = tf.nn.relu(input)
             # [batch, in_height, in_width, in_channels] => [batch, in_height*2, in_width*2, out_channels]
-            output = deconv(rectified, out_channels)
+            output = deconv_1(rectified, out_channels)
             output = batchnorm(output)
 
             if dropout > 0.0:
@@ -830,6 +851,8 @@ def main():
     tf.summary.scalar("discriminator_loss", model.discrim_loss)
     tf.summary.scalar("generator_loss_GAN", model.gen_loss_GAN)
     tf.summary.scalar("generator_loss_L1", model.gen_loss_L1)
+    tf.summary.scalar("generator_loss", model.gen_loss_GAN * a.gan_weight + model.gen_loss_L1 * a.l1_weight)
+
 
     for var in tf.trainable_variables():
         tf.summary.histogram(var.op.name + "/values", var)
