@@ -1,4 +1,4 @@
-CUDA_VISIBLE_DEVICES=0 python pix2pix.py \
+CUDA_VISIBLE_DEVICES=0 python pix2pix_origin.py \
   --mode train \
   --output_dir facades_train \
   --max_epochs 200 \
