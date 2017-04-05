@@ -8,4 +8,4 @@ CUDA_VISIBLE_DEVICES=1 python pix2pix.py \
             --d_img_height 1024 \
             --d_img_width 2048 \
             --batch_size 16 \
-            --crop_size 600
+            --crop_size 512
