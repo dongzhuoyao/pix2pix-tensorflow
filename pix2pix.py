@@ -20,7 +20,7 @@ parser.add_argument("--d_train_dir", help="path to folder containing images")
 parser.add_argument("--d_train_gt_dir", help="path to folder containing images")
 parser.add_argument("--d_img_height", type=int,help="path to folder containing images")
 parser.add_argument("--d_img_width", type=int,help="path to folder containing images")
-
+parser.add_argument("--crop_size", type=int,default=512,help="path to folder containing images")
 
 
 parser.add_argument("--input_dir", help="path to folder containing images")
