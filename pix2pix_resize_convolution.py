@@ -12,6 +12,18 @@ import random
 import collections
 import math
 import time
+#http://stackoverflow.com/questions/107705/disable-output-buffering
+class Unbuffered(object):
+   def __init__(self, stream):
+       self.stream = stream
+   def write(self, data):
+       self.stream.write(data)
+       self.stream.flush()
+   def __getattr__(self, attr):
+       return getattr(self.stream, attr)
+
+import sys
+sys.stdout = Unbuffered(sys.stdout)
 
 parser = argparse.ArgumentParser()
 
@@ -20,9 +32,8 @@ parser.add_argument("--d_train_dir", help="path to folder containing images")
 parser.add_argument("--d_train_gt_dir", help="path to folder containing images")
 parser.add_argument("--d_img_height", type=int,help="path to folder containing images")
 parser.add_argument("--d_img_width", type=int,help="path to folder containing images")
-
-
-
+parser.add_argument("--crop_size", type=int,default=512,help="path to folder containing images")
+#original
 parser.add_argument("--input_dir", help="path to folder containing images")
 parser.add_argument("--mode", required=True, choices=["train", "test", "export"])
 parser.add_argument("--output_dir", required=True, help="where to put output files")
@@ -39,25 +50,27 @@ parser.add_argument("--save_freq", type=int, default=5000, help="save model ever
 
 parser.add_argument("--aspect_ratio", type=float, default=1.0, help="aspect ratio of output images (width/height)")
 parser.add_argument("--lab_colorization", action="store_true", help="split input image into brightness (A) and color (B)")
-parser.add_argument("--batch_size", type=int, default=1, help="number of images in batch")
+parser.add_argument("--batch_size", type=int, default=16, help="number of images in batch")
 parser.add_argument("--which_direction", type=str, default="AtoB", choices=["AtoB", "BtoA"])
-parser.add_argument("--ngf", type=int, default=64, help="number of generator filters in first conv layer")
+parser.add_argument("--ngf", type=int, default=32, help="number of generator filters in first conv layer")
 parser.add_argument("--ndf", type=int, default=64, help="number of discriminator filters in first conv layer")
-parser.add_argument("--scale_size", type=int, default=286, help="scale images to this size before cropping to 256x256")
+#parser.add_argument("--scale_size", type=int, default=286, help="scale images to this size before cropping to 256x256")
+
+parser.add_argument("--scale_rate", type=float, default=0.9, help="scale images to this size before cropping to 256x256")
 parser.add_argument("--flip", dest="flip", action="store_true", help="flip images horizontally")
 parser.add_argument("--no_flip", dest="flip", action="store_false", help="don't flip images horizontally")
 parser.set_defaults(flip=True)
 parser.add_argument("--lr", type=float, default=0.0002, help="initial learning rate for adam")
 parser.add_argument("--beta1", type=float, default=0.5, help="momentum term of adam")
-parser.add_argument("--l1_weight", type=float, default=100.0, help="weight on L1 term for generator gradient")
-parser.add_argument("--gan_weight", type=float, default=1.0, help="weight on GAN term for generator gradient")
+parser.add_argument("--l1_weight", type=float, default=90.0, help="weight on L1 term for generator gradient")
+parser.add_argument("--gan_weight", type=float, default=10.0, help="weight on GAN term for generator gradient")
 
 # export options
 parser.add_argument("--output_filetype", default="png", choices=["png", "jpeg"])
 a = parser.parse_args()
 
 EPS = 1e-12
-CROP_SIZE = 256
+
 
 Examples = collections.namedtuple("Examples", "paths, inputs, targets, count, steps_per_epoch")
 Model = collections.namedtuple("Model", "outputs, predict_real, predict_fake, discrim_loss, discrim_grads_and_vars, gen_loss_GAN, gen_loss_L1, gen_grads_and_vars, train")
@@ -145,6 +158,14 @@ def deconv(batch_input, out_channels):
         conv = tf.nn.conv2d_transpose(batch_input, filter, [batch, in_height * 2, in_width * 2, out_channels], [1, 2, 2, 1], padding="SAME")
         return conv
 
+def deconv_1(batch_input, out_channels):
+    with tf.variable_scope("deconv_only_1"):
+        batch, in_height, in_width, in_channels = [int(d) for d in batch_input.get_shape()]
+        filter = tf.get_variable("filter", [1, 1, out_channels, in_channels], dtype=tf.float32, initializer=tf.random_normal_initializer(0, 0.02))
+        # [batch, in_height, in_width, in_channels], [filter_width, filter_height, out_channels, in_channels]
+        #     => [batch, out_height, out_width, out_channels]
+        conv = tf.nn.conv2d_transpose(batch_input, filter, [batch, in_height, in_width, out_channels], [1, 1, 1, 1], padding="SAME")
+        return conv
 
 def check_image(image):
     assertion = tf.assert_equal(tf.shape(image)[-1], 3, message="image must have 3 color channels")
@@ -244,98 +265,6 @@ def lab_to_rgb(lab):
         return tf.reshape(srgb_pixels, tf.shape(lab))
 
 
-def load_examples():
-    if a.input_dir is None or not os.path.exists(a.input_dir):
-        raise Exception("input_dir does not exist")
-
-    input_paths = glob.glob(os.path.join(a.input_dir, "*.jpg"))
-    decode = tf.image.decode_jpeg
-    if len(input_paths) == 0:
-        input_paths = glob.glob(os.path.join(a.input_dir, "*.png"))
-        decode = tf.image.decode_png
-
-    if len(input_paths) == 0:
-        raise Exception("input_dir contains no image files")
-
-    def get_name(path):
-        name, _ = os.path.splitext(os.path.basename(path))
-        return name
-
-    # if the image names are numbers, sort by the value rather than asciibetically
-    # having sorted inputs means that the outputs are sorted in test mode
-    if all(get_name(path).isdigit() for path in input_paths):
-        input_paths = sorted(input_paths, key=lambda path: int(get_name(path)))
-    else:
-        input_paths = sorted(input_paths)
-
-    with tf.name_scope("load_images"):
-        path_queue = tf.train.string_input_producer(input_paths, shuffle=a.mode == "train")
-        reader = tf.WholeFileReader()
-        paths, contents = reader.read(path_queue)
-        raw_input = decode(contents)
-        raw_input = tf.image.convert_image_dtype(raw_input, dtype=tf.float32)
-
-        assertion = tf.assert_equal(tf.shape(raw_input)[2], 3, message="image does not have 3 channels")
-        with tf.control_dependencies([assertion]):
-            raw_input = tf.identity(raw_input)
-
-        raw_input.set_shape([None, None, 3])
-
-        if a.lab_colorization:
-            # load color and brightness from image, no B image exists here
-            lab = rgb_to_lab(raw_input)
-            L_chan, a_chan, b_chan = preprocess_lab(lab)
-            a_images = tf.expand_dims(L_chan, axis=2)
-            b_images = tf.stack([a_chan, b_chan], axis=2)
-        else:
-            # break apart image pair and move to range [-1, 1]
-            width = tf.shape(raw_input)[1] # [height, width, channels]
-            a_images = preprocess(raw_input[:,:width//2,:])
-            b_images = preprocess(raw_input[:,width//2:,:])
-
-    if a.which_direction == "AtoB":
-        inputs, targets = [a_images, b_images]
-    elif a.which_direction == "BtoA":
-        inputs, targets = [b_images, a_images]
-    else:
-        raise Exception("invalid direction")
-
-    # synchronize seed for image operations so that we do the same operations to both
-    # input and output images
-    seed = random.randint(0, 2**31 - 1)
-    def transform(image):
-        r = image
-        if a.flip:
-            r = tf.image.random_flip_left_right(r, seed=seed)
-
-        # area produces a nice downscaling, but does nearest neighbor for upscaling
-        # assume we're going to be doing downscaling here
-        r = tf.image.resize_images(r, [a.scale_size, a.scale_size], method=tf.image.ResizeMethod.AREA)
-
-        offset = tf.cast(tf.floor(tf.random_uniform([2], 0, a.scale_size - CROP_SIZE + 1, seed=seed)), dtype=tf.int32)
-        if a.scale_size > CROP_SIZE:
-            r = tf.image.crop_to_bounding_box(r, offset[0], offset[1], CROP_SIZE, CROP_SIZE)
-        elif a.scale_size < CROP_SIZE:
-            raise Exception("scale size cannot be less than crop size")
-        return r
-
-    with tf.name_scope("input_images"):
-        input_images = transform(inputs)
-
-    with tf.name_scope("target_images"):
-        target_images = transform(targets)
-
-    paths_batch, inputs_batch, targets_batch = tf.train.batch([paths, input_images, target_images], batch_size=a.batch_size)
-    steps_per_epoch = int(math.ceil(len(input_paths) / a.batch_size))
-
-    return Examples(
-        paths=paths_batch,
-        inputs=inputs_batch,
-        targets=targets_batch,
-        count=len(input_paths),
-        steps_per_epoch=steps_per_epoch,
-    )
-
 def load_examples1():
     if a.d_train_list is None or not os.path.isfile(a.d_train_list):
         raise Exception("d_input_file does not exist")
@@ -402,8 +331,8 @@ def load_examples1():
     seed = random.randint(0, 2**31 - 1)
     def transform(image):
         r = image
-        if a.flip:
-            r = tf.image.random_flip_left_right(r, seed=seed)
+        #if a.flip:
+        #    r = tf.image.random_flip_left_right(r, seed=seed)
 
         #r = tf.image.resize_images(r, [int(a.scale_rate*tf.shape(r)[0]), int(a.scale_rate*tf.shape(r)[1])], method=tf.image.ResizeMethod.AREA)
 
@@ -435,22 +364,120 @@ def load_examples1():
 
 
 
+
+def load_examples():
+    if a.input_dir is None or not os.path.exists(a.input_dir):
+        raise Exception("input_dir does not exist")
+
+    input_paths = glob.glob(os.path.join(a.input_dir, "*.jpg"))
+    decode = tf.image.decode_jpeg
+    if len(input_paths) == 0:
+        input_paths = glob.glob(os.path.join(a.input_dir, "*.png"))
+        decode = tf.image.decode_png
+
+    if len(input_paths) == 0:
+        raise Exception("input_dir contains no image files")
+
+    def get_name(path):
+        name, _ = os.path.splitext(os.path.basename(path))
+        return name
+
+    # if the image names are numbers, sort by the value rather than asciibetically
+    # having sorted inputs means that the outputs are sorted in test mode
+    if all(get_name(path).isdigit() for path in input_paths):
+        input_paths = sorted(input_paths, key=lambda path: int(get_name(path)))
+    else:
+        input_paths = sorted(input_paths)
+
+    with tf.name_scope("load_images"):
+        path_queue = tf.train.string_input_producer(input_paths, shuffle=a.mode == "train")
+        reader = tf.WholeFileReader()
+        paths, contents = reader.read(path_queue)
+        raw_input = decode(contents)
+        raw_input = tf.image.convert_image_dtype(raw_input, dtype=tf.float32)
+
+        assertion = tf.assert_equal(tf.shape(raw_input)[2], 3, message="image does not have 3 channels")
+        #d:???
+        with tf.control_dependencies([assertion]):
+            raw_input = tf.identity(raw_input)
+
+        raw_input.set_shape([None, None, 3])
+
+        if a.lab_colorization:
+            # load color and brightness from image, no B image exists here
+            lab = rgb_to_lab(raw_input)
+            L_chan, a_chan, b_chan = preprocess_lab(lab)
+            a_images = tf.expand_dims(L_chan, axis=2)
+            b_images = tf.stack([a_chan, b_chan], axis=2)
+        else:
+            # break apart image pair and move to range [-1, 1]
+            width = tf.shape(raw_input)[1] # [height, width, channels]
+            a_images = preprocess(raw_input[:,:width//2,:])
+            b_images = preprocess(raw_input[:,width//2:,:])
+
+    if a.which_direction == "AtoB":
+        inputs, targets = [a_images, b_images]
+    elif a.which_direction == "BtoA":
+        inputs, targets = [b_images, a_images]
+    else:
+        raise Exception("invalid direction")
+
+    # synchronize seed for image operations so that we do the same operations to both
+    # input and output images
+    seed = random.randint(0, 2**31 - 1)
+    def transform(image):
+        r = image
+        if a.flip:
+            r = tf.image.random_flip_left_right(r, seed=seed)
+
+        # area produces a nice downscaling, but does nearest neighbor for upscaling
+        # assume we're going to be doing downscaling here
+        r = tf.image.resize_images(r, [a.scale_size, a.scale_size], method=tf.image.ResizeMethod.AREA)
+
+        offset = tf.cast(tf.floor(tf.random_uniform([2], 0, a.scale_size - a.crop_size + 1, seed=seed)), dtype=tf.int32)
+        if a.scale_size > a.crop_size:
+            r = tf.image.crop_to_bounding_box(r, offset[0], offset[1], a.crop_size, a.crop_size)
+        elif a.scale_size < a.crop_size:
+            raise Exception("scale size cannot be less than crop size")
+        return r
+
+    with tf.name_scope("input_images"):
+        input_images = transform(inputs)
+
+    with tf.name_scope("target_images"):
+        target_images = transform(targets)
+
+    paths_batch, inputs_batch, targets_batch = tf.train.batch([paths, input_images, target_images], batch_size=a.batch_size)
+    steps_per_epoch = int(math.ceil(len(input_paths) / a.batch_size))
+
+    return Examples(
+        paths=paths_batch,
+        inputs=inputs_batch,
+        targets=targets_batch,
+        count=len(input_paths),
+        steps_per_epoch=steps_per_epoch,
+    )
+
+
 def create_generator(generator_inputs, generator_outputs_channels):
     layers = []
 
-    # encoder_1: [batch, 256, 256, in_channels] => [batch, 128, 128, ngf]
+    #need mapping generator_inputs from [0,1] to [-1,1]?
+
+    # encoder_1: [batch, 512, 512, in_channels] => [batch, 256, 256, ngf]
     with tf.variable_scope("encoder_1"):
         output = conv(generator_inputs, a.ngf, stride=2)
         layers.append(output)
 
     layer_specs = [
-        a.ngf * 2, # encoder_2: [batch, 128, 128, ngf] => [batch, 64, 64, ngf * 2]
-        a.ngf * 4, # encoder_3: [batch, 64, 64, ngf * 2] => [batch, 32, 32, ngf * 4]
-        a.ngf * 8, # encoder_4: [batch, 32, 32, ngf * 4] => [batch, 16, 16, ngf * 8]
-        a.ngf * 8, # encoder_5: [batch, 16, 16, ngf * 8] => [batch, 8, 8, ngf * 8]
-        a.ngf * 8, # encoder_6: [batch, 8, 8, ngf * 8] => [batch, 4, 4, ngf * 8]
-        a.ngf * 8, # encoder_7: [batch, 4, 4, ngf * 8] => [batch, 2, 2, ngf * 8]
-        a.ngf * 8, # encoder_8: [batch, 2, 2, ngf * 8] => [batch, 1, 1, ngf * 8]
+        a.ngf * 2, # encoder_2: [batch, 256, 256, ngf] => [batch, 128, 128, ngf * 2]
+        a.ngf * 4, # encoder_3: [batch, 128, 128, ngf * 2] => [batch, 64, 64, ngf * 4]
+        a.ngf * 8, # encoder_4: [batch, 64, 64, ngf * 4] => [batch, 32, 32, ngf * 8]
+        a.ngf * 8, # encoder_5: [batch, 32, 32, ngf * 8] => [batch, 16, 16, ngf * 8]
+        a.ngf * 8, # encoder_6: [batch, 16, 16, ngf * 8] => [batch, 8, 8, ngf * 8]
+        a.ngf * 8, # encoder_7: [batch, 8, 8, ngf * 8] => [batch, 4, 4, ngf * 8]
+        a.ngf * 8, # encoder_8: [batch, 4, 4, ngf * 8] => [batch, 2, 2, ngf * 8]
+        a.ngf * 8,  # encoder_9: [batch, 2, 2, ngf * 8] => [batch, 1, 1, ngf * 8]
     ]
 
     for out_channels in layer_specs:
@@ -462,14 +489,27 @@ def create_generator(generator_inputs, generator_outputs_channels):
             layers.append(output)
 
     layer_specs = [
-        (a.ngf * 8, 0.5),   # decoder_8: [batch, 1, 1, ngf * 8] => [batch, 2, 2, ngf * 8 * 2]
-        (a.ngf * 8, 0.5),   # decoder_7: [batch, 2, 2, ngf * 8 * 2] => [batch, 4, 4, ngf * 8 * 2]
-        (a.ngf * 8, 0.5),   # decoder_6: [batch, 4, 4, ngf * 8 * 2] => [batch, 8, 8, ngf * 8 * 2]
-        (a.ngf * 8, 0.0),   # decoder_5: [batch, 8, 8, ngf * 8 * 2] => [batch, 16, 16, ngf * 8 * 2]
-        (a.ngf * 4, 0.0),   # decoder_4: [batch, 16, 16, ngf * 8 * 2] => [batch, 32, 32, ngf * 4 * 2]
-        (a.ngf * 2, 0.0),   # decoder_3: [batch, 32, 32, ngf * 4 * 2] => [batch, 64, 64, ngf * 2 * 2]
-        (a.ngf, 0.0),       # decoder_2: [batch, 64, 64, ngf * 2 * 2] => [batch, 128, 128, ngf * 2]
+        (a.ngf * 8, 0.5),   # decoder_9: [batch, 1, 1, ngf * 8] => [batch, 2, 2, ngf * 8 * 2]
+        (a.ngf * 8, 0.5),   # decoder_8: [batch, 2, 2, ngf * 8 * 2] => [batch, 4, 4, ngf * 8 * 2]
+        (a.ngf * 8, 0.5),   # decoder_7: [batch, 4, 4, ngf * 8 * 2] => [batch, 8, 8, ngf * 8 * 2]
+        (a.ngf * 8, 0.0),   # decoder_6: [batch, 8, 8, ngf * 8 * 2] => [batch, 16, 16, ngf * 8 * 2]
+
+        (a.ngf * 8, 0.0),  # decoder_5: [batch, 16, 16, ngf * 8 * 2] => [batch, 32, 32, ngf * 8 * 2]
+
+        (a.ngf * 8, 0.0),   # decoder_4: [batch, 32, 32, ngf * 8 * 2] => [batch, 64, 64, ngf * 4 * 2]
+        (a.ngf * 4, 0.0),   # decoder_3: [batch, 64, 64, ngf * 4 * 2] => [batch, 128, 128, ngf * 2 * 2]
+        (a.ngf * 2, 0.0),       # decoder_2: [batch, 128, 128, ngf * 2 * 2] => [batch, 256, 256, ngf * 2]
     ]
+
+    def add_upscale(last_output):
+        """Adds a layer that upscales the output by 2x through nearest neighbor interpolation"""
+
+        prev_shape = last_output.get_shape()
+        size = [2 * int(s) for s in prev_shape[1:3]]
+        out = tf.image.resize_nearest_neighbor(last_output, size)
+        return out
+
+
 
     num_encoder_layers = len(layers)
     for decoder_layer, (out_channels, dropout) in enumerate(layer_specs):
@@ -482,9 +522,12 @@ def create_generator(generator_inputs, generator_outputs_channels):
             else:
                 input = tf.concat([layers[-1], layers[skip_layer]], axis=3)
 
+            # Spatial upscale (see http://distill.pub/2016/deconv-checkerboard/)
+            # and transposed convolution
+            input = add_upscale(input)
             rectified = tf.nn.relu(input)
             # [batch, in_height, in_width, in_channels] => [batch, in_height*2, in_width*2, out_channels]
-            output = deconv(rectified, out_channels)
+            output = deconv_1(rectified, out_channels)
             output = batchnorm(output)
 
             if dropout > 0.0:
@@ -492,7 +535,7 @@ def create_generator(generator_inputs, generator_outputs_channels):
 
             layers.append(output)
 
-    # decoder_1: [batch, 128, 128, ngf * 2] => [batch, 256, 256, generator_outputs_channels]
+    # decoder_1: [batch, 256, 256, ngf * 2] => [batch, 512, 512, generator_outputs_channels]
     with tf.variable_scope("decoder_1"):
         input = tf.concat([layers[-1], layers[0]], axis=3)
         rectified = tf.nn.relu(input)
@@ -505,24 +548,27 @@ def create_generator(generator_inputs, generator_outputs_channels):
 
 def create_model(inputs, targets):
     def create_discriminator(discrim_inputs, discrim_targets):
-        n_layers = 3
+        n_layers = 4
         layers = []
 
         # 2x [batch, height, width, in_channels] => [batch, height, width, in_channels * 2]
         input = tf.concat([discrim_inputs, discrim_targets], axis=3)
 
-        # layer_1: [batch, 256, 256, in_channels * 2] => [batch, 128, 128, ndf]
+        # layer_1: [batch, 512, 512, in_channels * 2] => [batch, 256, 256, ndf]
         with tf.variable_scope("layer_1"):
             convolved = conv(input, a.ndf, stride=2)
             rectified = lrelu(convolved, 0.2)
             layers.append(rectified)
 
-        # layer_2: [batch, 128, 128, ndf] => [batch, 64, 64, ndf * 2]
-        # layer_3: [batch, 64, 64, ndf * 2] => [batch, 32, 32, ndf * 4]
-        # layer_4: [batch, 32, 32, ndf * 4] => [batch, 31, 31, ndf * 8]
+        # layer_2: [batch, 256, 256, ndf] => [batch, 128, 128, ndf * 2]
+        # layer_3: [batch, 128, 128, ndf * 2] => [batch, 64, 64, ndf * 4]
+        # layer_4: [batch, 64, 64, ndf * 4] => [batch, 32, 32, ndf * 8]
+
+        # layer_5: [batch, 32, 32, ndf * 8] => [batch, 31, 31, ndf * 8]:
+
         for i in range(n_layers):
             with tf.variable_scope("layer_%d" % (len(layers) + 1)):
-                out_channels = a.ndf * min(2**(i+1), 8)
+                out_channels = a.ndf * min(2**(i+1), 8) # max channel num is ndf*8 ~
                 stride = 1 if i == n_layers - 1 else 2  # last layer here has stride 1
                 convolved = conv(layers[-1], out_channels, stride=stride)
                 normalized = batchnorm(convolved)
@@ -573,6 +619,7 @@ def create_model(inputs, targets):
         discrim_train = discrim_optim.apply_gradients(discrim_grads_and_vars)
 
     with tf.name_scope("generator_train"):
+        #d: after "discrim_train",it will execute "gen_train"
         with tf.control_dependencies([discrim_train]):
             gen_tvars = [var for var in tf.trainable_variables() if var.name.startswith("generator")]
             gen_optim = tf.train.AdamOptimizer(a.lr, a.beta1)
@@ -671,7 +718,7 @@ def main():
                     print("loaded", key, "=", val)
                     setattr(a, key, val)
         # disable these features in test mode
-        a.scale_size = CROP_SIZE
+        a.scale_size = a.crop_size
         a.flip = False
 
     for k, v in a._get_kwargs():
@@ -691,7 +738,7 @@ def main():
         # remove alpha channel if present
         input_image = input_image[:,:,:3]
         input_image = tf.image.convert_image_dtype(input_image, dtype=tf.float32)
-        input_image.set_shape([CROP_SIZE, CROP_SIZE, 3])
+        input_image.set_shape([a.crop_size, a.crop_size, 3])
         batch_input = tf.expand_dims(input_image, axis=0)
 
         with tf.variable_scope("generator") as scope:
@@ -733,7 +780,9 @@ def main():
 
         return
 
+
     examples = load_examples1()
+
     print("examples count = %d" % examples.count)
 
     # inputs and targets are [batch_size, height, width, channels]
@@ -764,7 +813,7 @@ def main():
     def convert(image):
         if a.aspect_ratio != 1.0:
             # upscale to correct aspect ratio
-            size = [CROP_SIZE, int(round(CROP_SIZE * a.aspect_ratio))]
+            size = [a.crop_size, int(round(a.crop_size * a.aspect_ratio))]
             image = tf.image.resize_images(image, size=size, method=tf.image.ResizeMethod.BICUBIC)
 
         return tf.image.convert_image_dtype(image, dtype=tf.uint8, saturate=True)
@@ -788,14 +837,11 @@ def main():
         }
 
     # summaries
-    with tf.name_scope("inputs_summary"):
-        tf.summary.image("inputs", converted_inputs)
+    with tf.name_scope("contrast_summary"):
+        tf.summary.image('input_target_output',
+                         tf.concat([converted_inputs, converted_targets, converted_outputs], 2),
+                         max_outputs=4)
 
-    with tf.name_scope("targets_summary"):
-        tf.summary.image("targets", converted_targets)
-
-    with tf.name_scope("outputs_summary"):
-        tf.summary.image("outputs", converted_outputs)
 
     with tf.name_scope("predict_real_summary"):
         tf.summary.image("predict_real", tf.image.convert_image_dtype(model.predict_real, dtype=tf.uint8))
@@ -806,6 +852,8 @@ def main():
     tf.summary.scalar("discriminator_loss", model.discrim_loss)
     tf.summary.scalar("generator_loss_GAN", model.gen_loss_GAN)
     tf.summary.scalar("generator_loss_L1", model.gen_loss_L1)
+    tf.summary.scalar("generator_loss", model.gen_loss_GAN * a.gan_weight + model.gen_loss_L1 * a.l1_weight)
+
 
     for var in tf.trainable_variables():
         tf.summary.histogram(var.op.name + "/values", var)
@@ -815,6 +863,8 @@ def main():
 
     with tf.name_scope("parameter_count"):
         parameter_count = tf.reduce_sum([tf.reduce_prod(tf.shape(v)) for v in tf.trainable_variables()])
+
+    run_metadata = tf.RunMetadata()
 
     saver = tf.train.Saver(max_to_keep=1)
 
@@ -876,6 +926,7 @@ def main():
                 if should(a.display_freq):
                     fetches["display"] = display_fetches
 
+                #main sentence~
                 results = sess.run(fetches, options=options, run_metadata=run_metadata)
 
                 if should(a.summary_freq):
@@ -890,8 +941,13 @@ def main():
                 if should(a.trace_freq):
                     print("recording trace")
                     sv.summary_writer.add_run_metadata(run_metadata, "step_%d" % results["global_step"])
+                    tf.contrib.tfprof.model_analyzer.print_model_analysis(
+                        tf.get_default_graph(),
+                        run_meta=run_metadata,
+                        tfprof_options=tf.contrib.tfprof.model_analyzer.PRINT_ALL_TIMING_MEMORY)
 
                 if should(a.progress_freq):
+                    print("write progress")
                     # global_step will have the correct step count if we resume from a checkpoint
                     train_epoch = math.ceil(results["global_step"] / examples.steps_per_epoch)
                     train_step = (results["global_step"] - 1) % examples.steps_per_epoch + 1

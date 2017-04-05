@@ -14,6 +14,8 @@ import math
 import time
 
 parser = argparse.ArgumentParser()
+
+
 parser.add_argument("--input_dir", help="path to folder containing images")
 parser.add_argument("--mode", required=True, choices=["train", "test", "export"])
 parser.add_argument("--output_dir", required=True, help="where to put output files")
