@@ -7,5 +7,5 @@ CUDA_VISIBLE_DEVICES=1 python pix2pix.py \
             --d_train_gt_dir /home/hutao1/dresult/normal_cityscapes/train_11 \
             --d_img_height 1024 \
             --d_img_width 2048 \
-            --batch_size 16 \
+            --batch_size 8 \
             --crop_size 512
